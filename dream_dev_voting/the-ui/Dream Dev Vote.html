@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dream Dev Vote</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="src/styles.css" />
+
+<script type="application/json" id="tweak-defaults">
+/*EDITMODE-BEGIN*/{
+  "accent": "#6a8a6f",
+  "density": "comfortable",
+  "showBallotPreview": true
+}/*EDITMODE-END*/
+</script>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="src/data.js"></script>
+<script type="text/babel" src="src/components.jsx"></script>
+<script type="text/babel" src="src/pages.jsx"></script>
+<script type="text/babel" src="src/admin.jsx"></script>
+<script type="text/babel" data-presets="react">
+function App() {
+  const { useState, useEffect } = React;
+  // Route persistence
+  const [route, setRoute] = useState(() => {
+    try { return localStorage.getItem('ddv_route') || 'landing'; } catch { return 'landing'; }
+  });
+  const [voteToken, setVoteToken] = useState(null);
+  const [electorateId, setElectorateId] = useState(() => {
+    try { return localStorage.getItem('ddv_electorateId') || null; } catch { return null; }
+  });
+  const [tweaks, setTweaks] = useState(() => {
+    const raw = document.getElementById('tweak-defaults').textContent.match(/\{[\s\S]*\}/)[0];
+    return JSON.parse(raw);
+  });
+  const [tweaksOpen, setTweaksOpen] = useState(false);
+
+  useEffect(() => {
+    try { localStorage.setItem('ddv_route', route); } catch {}
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [route]);
+
+  const navigate = (r) => setRoute(r);
+
+  // Apply accent color
+  useEffect(() => {
+    document.documentElement.style.setProperty('--green', tweaks.accent);
+  }, [tweaks.accent]);
+
+  // Tweaks host integration
+  useEffect(() => {
+    const onMsg = (e) => {
+      if (e.data?.type === '__activate_edit_mode') setTweaksOpen(true);
+      if (e.data?.type === '__deactivate_edit_mode') setTweaksOpen(false);
+    };
+    window.addEventListener('message', onMsg);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  const updateTweak = (k, v) => {
+    const next = { ...tweaks, [k]: v };
+    setTweaks(next);
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { [k]: v } }, '*');
+  };
+
+  const onLogin = (id) => { setElectorateId(id); setRoute('admin'); };
+  const onLogout = () => {
+    try { localStorage.removeItem('ddv_electorateId'); } catch {}
+    setElectorateId(null);
+    setRoute('admin/login');
+  };
+
+  const isAdminRoute = route.startsWith('admin');
+  const isAdminProtected = isAdminRoute && route !== 'admin/login';
+
+  let content;
+  if (isAdminProtected && !electorateId) {
+    content = <AdminLoginPage onLogin={onLogin} navigate={navigate} />;
+  } else if (route === 'admin/login') {
+    content = <AdminLoginPage onLogin={onLogin} navigate={navigate} />;
+  } else if (isAdminRoute) {
+    const adminPage = ({
+      'admin': <AdminDashboardPage navigate={navigate} />,
+      'admin/elections': <AdminElectionsPage />,
+      'admin/candidates': <AdminCandidatesPage />,
+      'admin/voters': <AdminVotersPage />,
+      'admin/electorates': <AdminElectoratesPage />,
+      'admin/permissions': <AdminPermissionsPage />,
+      'admin/votes': <AdminVotesPage />,
+    })[route] || <AdminDashboardPage navigate={navigate} />;
+    content = (
+      <AdminLayout route={route} navigate={navigate} electorateId={electorateId} onLogout={onLogout}>
+        {adminPage}
+      </AdminLayout>
+    );
+  } else {
+    const pages = {
+      landing: <LandingPage navigate={navigate} />,
+      register: <RegisterPage navigate={navigate} />,
+      vote: <VotePage navigate={navigate} setVoteToken={setVoteToken} />,
+      confirm: <ConfirmPage navigate={navigate} voteToken={voteToken} />,
+      results: <ResultsPage navigate={navigate} />,
+    };
+    content = pages[route] || pages.landing;
+  }
+
+  return (
+    <div className="app">
+      <nav className="navbar">
+        <div className="navbar-inner">
+          <a href="#" className="brand" onClick={e => { e.preventDefault(); navigate('landing'); }}>
+            <span className="brand-mark">DV</span>
+            <span>Dream Dev Vote</span>
+          </a>
+          <div className="nav-links">
+            <a href="#" className={`nav-link ${route === 'landing' ? 'active' : ''}`} onClick={e => { e.preventDefault(); navigate('landing'); }}>Home</a>
+            <a href="#" className={`nav-link ${route === 'vote' ? 'active' : ''}`} onClick={e => { e.preventDefault(); navigate('vote'); }}>Vote</a>
+            <a href="#" className={`nav-link ${route === 'results' ? 'active' : ''}`} onClick={e => { e.preventDefault(); navigate('results'); }}>Results</a>
+            <a href="#" className={`nav-link ${isAdminRoute ? 'active' : ''}`} onClick={e => { e.preventDefault(); navigate(electorateId ? 'admin' : 'admin/login'); }}>Admin</a>
+          </div>
+          <div className="hide-mobile row" style={{ gap: 8 }}>
+            {electorateId
+              ? <span className="user-badge"><span className="user-badge-dot">EL</span><span className="mono" style={{ fontSize: 11 }}>{electorateId}</span></span>
+              : <Button variant="secondary" size="sm" onClick={() => navigate('register')}>Register</Button>
+            }
+          </div>
+        </div>
+      </nav>
+      <main className="main" data-screen-label={routeLabel(route)}>
+        {content}
+      </main>
+      <footer className="footer">
+        Dream Dev Vote · Prototype · Transparent, auditable, open.
+      </footer>
+
+      {tweaksOpen && (
+        <div className="tweaks-panel">
+          <div className="tweaks-head">
+            <div className="tweaks-title">Tweaks</div>
+            <button className="btn btn-ghost btn-sm" onClick={() => setTweaksOpen(false)}>✕</button>
+          </div>
+          <div className="tweaks-row">
+            <label>Accent</label>
+            <input type="color" value={tweaks.accent} onChange={e => updateTweak('accent', e.target.value)} style={{ width: 40, height: 28, border: '1px solid var(--border)', borderRadius: 6, background: 'transparent' }} />
+          </div>
+          <div className="tweaks-row">
+            <label>Presets</label>
+            <div className="row" style={{ gap: 6 }}>
+              {[
+                ['#6a8a6f', 'sage'],
+                ['#4a6e52', 'forest'],
+                ['#2b4d3a', 'pine'],
+                ['#5d7a8a', 'slate'],
+              ].map(([c, name]) => (
+                <button key={c} title={name} onClick={() => updateTweak('accent', c)}
+                  style={{ width: 22, height: 22, borderRadius: 999, background: c, border: tweaks.accent === c ? '2px solid var(--ink)' : '1px solid var(--border)', cursor: 'pointer' }} />
+              ))}
+            </div>
+          </div>
+          <div className="tweaks-row">
+            <label>Jump to</label>
+            <Select value={route} onChange={e => navigate(e.target.value)} style={{ width: 160 }}>
+              <optgroup label="Public">
+                <option value="landing">Landing</option>
+                <option value="register">Register</option>
+                <option value="vote">Vote</option>
+                <option value="confirm">Confirm</option>
+                <option value="results">Results</option>
+              </optgroup>
+              <optgroup label="Admin">
+                <option value="admin/login">Admin login</option>
+                <option value="admin">Dashboard</option>
+                <option value="admin/elections">Elections</option>
+                <option value="admin/candidates">Candidates</option>
+                <option value="admin/voters">Voters</option>
+                <option value="admin/electorates">Electorates</option>
+                <option value="admin/permissions">Permissions</option>
+                <option value="admin/votes">Votes</option>
+              </optgroup>
+            </Select>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function routeLabel(r) {
+  return ({
+    landing: '01 Landing',
+    register: '02 Register',
+    vote: '03 Vote',
+    confirm: '04 Confirm',
+    results: '05 Results',
+    'admin/login': '06 Admin Login',
+    'admin': '07 Admin Dashboard',
+    'admin/elections': '08 Admin Elections',
+    'admin/candidates': '09 Admin Candidates',
+    'admin/voters': '10 Admin Voters',
+    'admin/electorates': '11 Admin Electorates',
+    'admin/permissions': '12 Admin Permissions',
+    'admin/votes': '13 Admin Votes',
+  })[r] || r;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
